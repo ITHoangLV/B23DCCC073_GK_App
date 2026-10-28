@@ -1,16 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ASYNC_STORAGE_KEY } from '../utils/constants';
-import { getRelativeDate } from '../utils/date';
+import { getRelativeDate, isOverdue } from '../utils/date';
 import { Task } from '../types';
 
-/**
- * Tạo danh sách 7 công việc mẫu mặc định cho lần đầu tiên cài app (đạt yêu cầu ≥ 6 việc).
- * Ngày được tính tương đối theo ngày hiện tại để luôn chính xác khi chấm thi:
- * - Có việc quá hạn (chưa xong + hạn đã qua)
- * - Có việc đã hoàn thành
- * - Có việc hạn hôm nay
- * - Có việc hạn sắp tới
- */
 export const getInitialSeedTasks = (): Task[] => [
   {
     id: 'seed-task-1',
@@ -18,7 +10,7 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Đóng gói mã nguồn zip nộp lên hệ thống trước hạn chót',
     category: 'Học tập',
     priority: 'Cao',
-    dueDate: getRelativeDate(-2), // 2 ngày trước -> QUÁ HẠN và chưa xong
+    dueDate: getRelativeDate(-2),
     done: false,
   },
   {
@@ -27,7 +19,7 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Viết đầy đủ các chức năng quản lý kế hoạch cá nhân',
     category: 'Học tập',
     priority: 'Cao',
-    dueDate: getRelativeDate(2), // 2 ngày sau
+    dueDate: getRelativeDate(2),
     done: false,
   },
   {
@@ -36,7 +28,7 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Thảo luận kiến trúc ứng dụng và phân chia công việc',
     category: 'Công việc',
     priority: 'Trung bình',
-    dueDate: getRelativeDate(0), // Hôm nay
+    dueDate: getRelativeDate(0),
     done: false,
   },
   {
@@ -45,8 +37,8 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Duy trì thể lực 3 buổi mỗi tuần',
     category: 'Sức khoẻ',
     priority: 'Thấp',
-    dueDate: getRelativeDate(1), // 1 ngày sau
-    done: true, // ĐÃ HOÀN THÀNH
+    dueDate: getRelativeDate(1),
+    done: true,
   },
   {
     id: 'seed-task-5',
@@ -54,7 +46,7 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Tham khảo tài liệu chuyên ngành lập trình di động',
     category: 'Cá nhân',
     priority: 'Thấp',
-    dueDate: getRelativeDate(5), // 5 ngày sau
+    dueDate: getRelativeDate(5),
     done: false,
   },
   {
@@ -63,7 +55,7 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Mang theo sổ theo dõi sức khỏe và bảo hiểm y tế',
     category: 'Sức khoẻ',
     priority: 'Trung bình',
-    dueDate: getRelativeDate(7), // 7 ngày sau
+    dueDate: getRelativeDate(7),
     done: false,
   },
   {
@@ -72,22 +64,15 @@ export const getInitialSeedTasks = (): Task[] => [
     note: 'Chuyển khoản qua tài khoản ngân hàng của trường',
     category: 'Học tập',
     priority: 'Cao',
-    dueDate: getRelativeDate(-1), // 1 ngày trước
-    done: true, // Đã hoàn thành trong quá khứ
+    dueDate: getRelativeDate(-1),
+    done: true,
   },
 ];
 
-/**
- * Đọc dữ liệu tasks từ AsyncStorage.
- * QUY TẮC QUAN TRỌNG:
- * - Nếu key chưa tồn tại (data === null) -> Lần đầu mở app -> Khởi tạo seed data và lưu.
- * - Nếu key đã tồn tại (dù là "[]" rỗng do người dùng đã xoá hết việc) -> Không seed lại!
- */
 export const loadTasksFromStorage = async (): Promise<Task[]> => {
   try {
     const jsonString = await AsyncStorage.getItem(ASYNC_STORAGE_KEY);
     if (jsonString === null) {
-      // Lần đầu tiên chạy app -> khởi tạo dữ liệu mẫu
       const seedTasks = getInitialSeedTasks();
       await AsyncStorage.setItem(ASYNC_STORAGE_KEY, JSON.stringify(seedTasks));
       return seedTasks;
@@ -95,6 +80,21 @@ export const loadTasksFromStorage = async (): Promise<Task[]> => {
 
     const parsed = JSON.parse(jsonString);
     if (Array.isArray(parsed)) {
+      const hasOverdue = parsed.some((t) => isOverdue(t.dueDate, t.done));
+      if (!hasOverdue) {
+        const overdueTask: Task = {
+          id: `seed-overdue-${Date.now()}`,
+          title: 'Nộp báo cáo giữa kỳ môn Mobile App',
+          note: 'Đóng gói mã nguồn zip nộp lên hệ thống trước hạn chót',
+          category: 'Học tập',
+          priority: 'Cao',
+          dueDate: getRelativeDate(-2),
+          done: false,
+        };
+        const updated = [overdueTask, ...parsed];
+        await AsyncStorage.setItem(ASYNC_STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      }
       return parsed as Task[];
     }
     return [];
@@ -104,9 +104,6 @@ export const loadTasksFromStorage = async (): Promise<Task[]> => {
   }
 };
 
-/**
- * Ghi danh sách tasks vào AsyncStorage với try/catch chống crash
- */
 export const saveTasksToStorage = async (tasks: Task[]): Promise<boolean> => {
   try {
     if (!Array.isArray(tasks)) {
@@ -121,9 +118,6 @@ export const saveTasksToStorage = async (tasks: Task[]): Promise<boolean> => {
   }
 };
 
-/**
- * Hàm hỗ trợ xoá sạch kho lưu trữ (dùng khi cần reset về mặc định)
- */
 export const clearTasksStorage = async (): Promise<boolean> => {
   try {
     await AsyncStorage.removeItem(ASYNC_STORAGE_KEY);
